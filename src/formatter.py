@@ -8,18 +8,17 @@ class CostFormatter:
     """
 
     @staticmethod
-    def format_as_table(data: list) -> str:
+    def format_as_table(data: list, add_total: bool = True) -> str:
         """
-        Converts cost data into a formatted table with aggregated totals.
+        Converts AWS data into a formatted table. Adds a total only if 'Total Cost' is present.
         """
         if not data:
-            return "No cost records found for the selected date range."
+            return "No records found."
 
-        # Calculate the total cost
-        total_cost = sum(item['Total Cost'] for item in data)
-
-        # Append total cost row to the table
-        data.append({'Service': 'TOTAL', 'Total Cost': round(total_cost, 2)})
+        # Check if "Total Cost" exists in the data items
+        if add_total and "Total Cost" in data[0]:
+            total_cost = sum(item['Total Cost'] for item in data)
+            data.append({'Service': 'TOTAL', 'Total Cost': round(total_cost, 2)})
 
         return tabulate(data, headers="keys", tablefmt="grid")
 

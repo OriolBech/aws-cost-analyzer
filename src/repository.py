@@ -23,8 +23,8 @@ class AWSCostRepository(CostRepository):
         """
         Initialize AWS Cost Explorer client with an optional AWS profile.
         """
-        session = boto3.Session(profile_name=profile_name) if profile_name else boto3.Session()
-        self.client = session.client('ce')
+        self.session = boto3.Session(profile_name=profile_name)
+        self.client = self.session.client('ce', region_name="us-east-1")
 
     def get_costs(self, start_date: str, end_date: str) -> list:
         """
@@ -57,28 +57,35 @@ class AWSCostRepository(CostRepository):
 
     def get_database_instances(self):
         """
-        Fetches details of RDS instances, including engine type, instance type, and allocated storage.
+        Fetches RDS instance details from all available regions with progress logging.
         """
         instances = []
-        try:
-            response = self.rds_client.describe_db_instances()
 
-            for db in response["DBInstances"]:
-                instances.append({
-                    "DBIdentifier": db["DBInstanceIdentifier"],
-                    "Engine": db["Engine"],
-                    "InstanceType": db["DBInstanceClass"],
-                    "Storage (GB)": db["AllocatedStorage"],
-                })
-        except Exception as e:
-            print(f"⚠️ Error fetching RDS instances: {e}")
+        # Set default region for EC2 to discover regions
+        ec2 = self.session.client('ec2', region_name="us-east-1")
 
+        regions_response = ec2.describe_regions(AllRegions=False)
+        regions = [region['RegionName'] for region in regions_response['Regions']]
+
+        print(f"🔍 Discovering RDS instances across {len(regions)} regions...")
+
+        # Iterate through each region
+        for idx, region in enumerate(regions, start=1):
+            print(f"⏳ [{idx}/{len(regions)}] Analyzing region: {region}")
+            rds_client = self.session.client('rds', region_name=region)
+
+            try:
+                response = rds_client.describe_db_instances()
+                for db in response["DBInstances"]:
+                    instances.append({
+                        "Region": region,
+                        "DBIdentifier": db["DBInstanceIdentifier"],
+                        "Engine": db["Engine"],
+                        "InstanceType": db["DBInstanceClass"],
+                        "Storage (GB)": db["AllocatedStorage"],
+                    })
+            except Exception as e:
+                print(f"⚠️ Could not fetch from {region}: {e}")
+
+        print("✅ RDS instance discovery completed.")
         return instances
-
-    def get_service_pricing(self, service_name):
-        client = boto3.client("pricing", region_name="us-east-1")
-        response = client.get_products(
-            ServiceCode=service_name,
-            Filters=[{"Type": "TERM_MATCH", "Field": "regionCode", "Value": "us-east-1"}]
-        )
-        return response
