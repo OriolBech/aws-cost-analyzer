@@ -4,46 +4,64 @@ from tabulate import tabulate
 
 class CostFormatter:
     """
-    Handles formatting of AWS cost data for display.
+    Handles formatting of AWS data for display and CSV.
     """
 
     @staticmethod
     def format_as_table(data: list, add_total: bool = True) -> str:
-        """
-        Converts AWS data into a formatted table. Adds a total only if 'Total Cost' is present.
-        """
         if not data:
             return "No records found."
 
-        # Check if "Total Cost" exists in the data items
-        if add_total and "Total Cost" in data[0]:
-            total_cost = sum(item['Total Cost'] for item in data)
-            data.append({'Service': 'TOTAL', 'Total Cost': round(total_cost, 2)})
+        total_keys = ["Total Cost", "Total Cost (30d)"]
+        total_key = next((key for key in total_keys if key in data[0]), None)
+
+        if add_total and total_key:
+            total_cost = sum(
+                item.get(total_key, 0) for item in data if isinstance(item.get(total_key, 0), (int, float))
+            )
+            data.append({list(data[0].keys())[0]: "TOTAL", total_key: round(total_cost, 2)})
 
         return tabulate(data, headers="keys", tablefmt="grid")
 
     @staticmethod
     def save_as_csv(data: list, output_file: str):
-        """
-        Saves the aggregated cost data to a CSV file.
-        """
         if not data:
-            print("No cost data to save.")
+            print("No data to save.")
             return
 
-        # Calculate total cost
-        total_cost = sum(item['Total Cost'] for item in data)
+        # Determinar columnas usadas en los datos actuales
+        used_columns = set()
+        for row in data:
+            used_columns.update(row.keys())
 
-        # Append total cost row
-        data.append({"Service": "TOTAL", "Total Cost": round(total_cost, 2)})
+        # Filtrar columnas vacías (solo columnas con al menos un valor no vacío)
+        filtered_columns = [
+            col for col in used_columns if any(row.get(col) not in [None, ""] for row in data)
+        ]
 
-        # Ensure directory exists before writing
+        # Identificar columna de totales
+        total_keys = ["Total Cost", "Total Cost (30d)"]
+        total_key = next((key for key in total_keys if key in filtered_columns), None)
+
+        # Calcular la suma total para la última fila
+        total_row = {col: "" for col in filtered_columns}
+        if total_key:
+            total_sum = sum(
+                float(row[total_key]) for row in data if row.get(total_key) not in ["", None, "N/A"]
+            )
+            total_row[filtered_columns[0]] = "TOTAL"
+            total_row[total_key] = round(total_sum, 2)
+            data.append(total_row)
+
+        # Crear carpeta si no existe
         dir_path = os.path.dirname(output_file)
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path, exist_ok=True)
 
-        # Write aggregated data to CSV
+        # Escribir CSV
         with open(output_file, mode="w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=["Service", "Total Cost"])
+            writer = csv.DictWriter(file, fieldnames=filtered_columns)
             writer.writeheader()
             writer.writerows(data)
+
+        print(f"✅ Data successfully written to {output_file}")

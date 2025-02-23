@@ -7,7 +7,7 @@ A CLI tool to fetch and analyze AWS cost data using **AWS Cost Explorer API**, b
 - Filter costs by **AWS profile**
 - Group costs by predefined categories (**storage**, **compute**, **databases**, **backups**, **all**)
 - Automatically fetch details of RDS database instances when analyzing the **databases** category
-- Export results to a CSV file
+- Optionally export results to separate CSV files (cost details and RDS instances)
 - Run **locally** or **inside Docker**
 
 ---
@@ -47,8 +47,13 @@ pip install -r requirements.txt
 ## 🚀 **Usage**
 
 ### **1️⃣ Running Locally**
+
 ```sh
-python src/cli.py --days 30 --aws-profile default --category databases --output outputs/aws_costs.csv
+# Example with default settings (no CSV generated)
+python src/cli.py --days 30
+
+# Example specifying category and generating CSV files
+python src/cli.py --days 30 --aws-profile default --category databases --output aws_cost_reports
 ```
 
 **Options:**
@@ -57,9 +62,9 @@ python src/cli.py --days 30 --aws-profile default --category databases --output 
 | `--days` | Number of days to fetch cost data | `--days 7` |
 | `--aws-profile` | AWS profile to use | `--aws-profile myprofile` |
 | `--category` | Cost category (`storage`, `compute`, `databases`, `backups`, `all`) | `--category databases` |
-| `--output` | Save output as CSV | `--output outputs/aws_costs.csv` |
+| `--output` | (Optional) Directory to save output CSV files | `--output aws_cost_reports` |
 
-When using the `databases` category, the CLI automatically retrieves and displays details about RDS database instances across all regions.
+When using the `databases` category, the CLI automatically retrieves and displays details about RDS database instances across all regions and saves them in a separate CSV file if `--output` is provided.
 
 ---
 
@@ -72,14 +77,14 @@ docker-compose build
 
 #### **Run the CLI in Docker**
 ```sh
-docker-compose run --rm aws_cost_analyzer --days 30 --category databases --output outputs/aws_costs.csv
+docker-compose run --rm aws_cost_analyzer --days 30 --category databases --output aws_cost_reports
 ```
 
 #### **Check the Output**
 ```sh
-ls -l outputs/
+ls -l aws_cost_reports/
 ```
-The CSV file will be in the **`outputs/`** folder.
+The CSV files will be available in the **`aws_cost_reports/`** folder.
 
 ---
 
