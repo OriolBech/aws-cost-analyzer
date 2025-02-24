@@ -29,15 +29,8 @@ class CostFormatter:
             print("No data to save.")
             return
 
-        # Determinar columnas usadas en los datos actuales
-        used_columns = set()
-        for row in data:
-            used_columns.update(row.keys())
-
-        # Filtrar columnas vacías (solo columnas con al menos un valor no vacío)
-        filtered_columns = [
-            col for col in used_columns if any(row.get(col) not in [None, ""] for row in data)
-        ]
+        # Usa el orden del primer elemento directamente
+        filtered_columns = list(data[0].keys())
 
         # Identificar columna de totales
         total_keys = ["Total Cost", "Total Cost (30d)"]
@@ -58,7 +51,7 @@ class CostFormatter:
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path, exist_ok=True)
 
-        # Escribir CSV
+        # Escribir CSV respetando el orden del OrderedDict
         with open(output_file, mode="w", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=filtered_columns)
             writer.writeheader()
