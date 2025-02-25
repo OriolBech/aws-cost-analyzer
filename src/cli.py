@@ -5,12 +5,13 @@ from services import CostService
 from repository import AWSCostRepository
 from formatter import CostFormatter
 from settings import COST_PROFILES
+import datetime
 
 @click.command()
 @click.option('--days', default=7, help='Number of days to fetch AWS costs.')
 @click.option('--aws-profile', default=None, help='AWS profile name to use.')
 @click.option('--category', default="all", type=click.Choice(COST_PROFILES.keys()), help='Cost category to analyze.')
-@click.option('--output', default=None, help='Output directory name for CSV files.')
+@click.option('--output', default='/app/outputs', help='Output directory name for CSV files.')
 def cli(days, aws_profile, category, output):
     """
     CLI to fetch AWS costs and optionally save details into separate CSV files.
@@ -26,9 +27,12 @@ def cli(days, aws_profile, category, output):
         # Ensure output directory exists
         output_dir = os.path.abspath(output)
         os.makedirs(output_dir, exist_ok=True)
-
+        
+        # Add timestamp to filenames to avoid overwrites
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        
         # Save general costs CSV
-        costs_output_path = os.path.join(output_dir, f"aws_{category}_costs.csv")
+        costs_output_path = os.path.join(output_dir, f"aws_{category}_costs_{timestamp}.csv")
         CostFormatter.save_as_csv(copy.deepcopy(costs), costs_output_path)
         click.echo(f"✅ Costs data saved to {costs_output_path}")
 

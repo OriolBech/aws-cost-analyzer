@@ -77,6 +77,7 @@ class AWSCostRepository(CostRepository):
                     instance_type = db["DBInstanceClass"]
                     engine = db["Engine"]
                     storage_gb = db["AllocatedStorage"]
+                    is_cluster = 'aurora' in engine.lower()
                     price_per_hour = self.get_rds_price(instance_type, engine, region)
                     total_price = (
                         round(price_per_hour * total_hours, 2)
@@ -85,7 +86,10 @@ class AWSCostRepository(CostRepository):
                     )
 
                     utilization = self.get_rds_utilization(
-                        db["DBInstanceIdentifier"], region, days=total_days
+                        db["DBInstanceIdentifier"], 
+                        region, 
+                        days=total_days,
+                        is_cluster=is_cluster
                     )
 
                     specs = self.get_instance_specs(instance_type, engine, region)
@@ -124,7 +128,7 @@ class AWSCostRepository(CostRepository):
         evaluations = []
 
         # CPU Evaluation
-        if cpu_avg == 'N/A':
+        if not isinstance(cpu_avg, (int, float)):
             cpu_eval = "CPU: Insufficient Data"
         elif cpu_avg > 80:
             cpu_eval = "CPU: High Usage"
@@ -134,33 +138,38 @@ class AWSCostRepository(CostRepository):
             cpu_eval = "CPU: Optimal"
         evaluations.append(cpu_eval)
 
-        # Memory Evaluation (relativa al total de memoria)
-        if memory_avg_gb == 'N/A' or total_memory_gb in ['N/A', 0]:
-            mem_eval = "Memory: Insufficient Data"
-        else:
-            memory_percent_free = (memory_avg_gb / total_memory_gb) * 100
-            if memory_percent_free < 5:
-                mem_eval = f"Memory: Critically Low ({memory_percent_free:.1f}% free)"
-            elif memory_percent_free < 15:
-                mem_eval = f"Memory: Low ({memory_percent_free:.1f}% free)"
+        # Memory Evaluation
+        try:
+            if not all(isinstance(x, (int, float)) for x in [memory_avg_gb, total_memory_gb]):
+                mem_eval = "Memory: Insufficient Data"
             else:
-                mem_eval = f"Memory: Optimal ({memory_percent_free:.1f}% free)"
+                memory_percent_free = (memory_avg_gb / total_memory_gb) * 100
+                if memory_percent_free < 5:
+                    mem_eval = f"Memory: Critically Low ({memory_percent_free:.1f}% free)"
+                elif memory_percent_free < 15:
+                    mem_eval = f"Memory: Low ({memory_percent_free:.1f}% free)"
+                else:
+                    mem_eval = f"Memory: Optimal ({memory_percent_free:.1f}% free)"
+        except Exception:
+            mem_eval = "Memory: Calculation Error"
         evaluations.append(mem_eval)
 
-        # Storage Evaluation (relativa al total de storage)
-        if storage_avg_gb == 'N/A' or total_storage_gb in ['N/A', 0]:
-            storage_eval = "Storage: Insufficient Data"
-        else:
-            storage_percent_free = (storage_avg_gb / total_storage_gb) * 100
-            if storage_percent_free < 10:
-                storage_eval = f"Storage: Critically Low ({storage_percent_free:.1f}% free)"
-            elif storage_percent_free < 25:
-                storage_eval = f"Storage: Low ({storage_percent_free:.1f}% free)"
+        # Storage Evaluation
+        try:
+            if not all(isinstance(x, (int, float)) for x in [storage_avg_gb, total_storage_gb]):
+                storage_eval = "Storage: Insufficient Data"
             else:
-                storage_eval = f"Storage: Optimal ({storage_percent_free:.1f}% free)"
+                storage_percent_free = (storage_avg_gb / total_storage_gb) * 100
+                if storage_percent_free < 10:
+                    storage_eval = f"Storage: Critically Low ({storage_percent_free:.1f}% free)"
+                elif storage_percent_free < 25:
+                    storage_eval = f"Storage: Low ({storage_percent_free:.1f}% free)"
+                else:
+                    storage_eval = f"Storage: Optimal ({storage_percent_free:.1f}% free)"
+        except Exception:
+            storage_eval = "Storage: Calculation Error"
         evaluations.append(storage_eval)
 
-        # Devuelve evaluación combinada
         return " | ".join(evaluations)
     
     def get_rds_price(self, instance_type, engine, region):
@@ -199,47 +208,63 @@ class AWSCostRepository(CostRepository):
             return 'N/A'
         
     def get_max_connections(self, memory_gb):
-        memory_bytes = memory_gb * 1024**3
-        connections = memory_bytes / 25165760
-
-        return min(int(connections), 12000)
+        """
+        Calculate max connections based on memory, with proper type checking
+        """
+        try:
+            if isinstance(memory_gb, (int, float)):
+                memory_bytes = memory_gb * 1024**3
+                connections = memory_bytes / 25165760  # 24MB per connection
+                return min(int(connections), 12000)
+            return 'N/A'
+        except Exception:
+            return 'N/A'
         
-    def get_rds_utilization(self, db_identifier, region, days=7):
+    def get_rds_utilization(self, db_identifier, region, days=7, is_cluster=False):
         cloudwatch = self.session.client('cloudwatch', region_name=region)
+        dimension_name = 'DBClusterIdentifier' if is_cluster else 'DBInstanceIdentifier'
 
         metrics = {
-            'CPUUtilization': [],
-            'DatabaseConnections': [],
-            'FreeableMemory': [],
-            'FreeStorageSpace': []
+            'CPUUtilization': 'N/A',
+            'DatabaseConnections': 'N/A',
+            'FreeableMemory': 'N/A',
+            'FreeStorageSpace': 'N/A'
         }
 
-        for metric_name in metrics.keys():
-            response = cloudwatch.get_metric_statistics(
-                Namespace='AWS/RDS',
-                MetricName=metric_name,
-                Dimensions=[{'Name': 'DBInstanceIdentifier', 'Value': db_identifier}],
-                StartTime=datetime.utcnow() - timedelta(days=days),
-                EndTime=datetime.utcnow(),
-                Period=86400,  # 1 día
-                Statistics=['Average']
-            )
+        try:
+            for metric_name in metrics.keys():
+                response = cloudwatch.get_metric_statistics(
+                    Namespace='AWS/RDS',
+                    MetricName=metric_name,
+                    Dimensions=[{'Name': dimension_name, 'Value': db_identifier}],
+                    StartTime=datetime.utcnow() - timedelta(days=days),
+                    EndTime=datetime.utcnow(),
+                    Period=86400,  # daily metrics
+                    Statistics=['Average']
+                )
 
-            datapoints = response.get('Datapoints', [])
-            avg_value = (sum(dp['Average'] for dp in datapoints) / len(datapoints)) if datapoints else None
+                datapoints = response.get('Datapoints', [])
+                if not datapoints:
+                    continue
 
-            if metric_name == 'FreeStorageSpace' or metric_name == 'FreeableMemory':
-                # Convertir bytes a GB
-                metrics[metric_name] = round(avg_value / (1024 ** 3), 2) if avg_value else 'N/A'
-            else:
-                metrics[metric_name] = round(avg_value, 2) if avg_value else 'N/A'
+                values = [dp['Average'] for dp in datapoints if isinstance(dp.get('Average'), (int, float))]
+                if not values:
+                    continue
+
+                avg_value = sum(values) / len(values)
+
+                if metric_name in ['FreeStorageSpace', 'FreeableMemory']:
+                    # Convert bytes to GB
+                    metrics[metric_name] = round(avg_value / (1024 ** 3), 2)
+                else:
+                    metrics[metric_name] = round(avg_value, 2)
+
+        except Exception as e:
+            print(f"⚠️ Error fetching metrics for {db_identifier} in {region}: {e}")
 
         return metrics
 
     def get_instance_specs(self, instance_type, engine, region):
-        """
-        Obtiene automáticamente memoria, vCPUs y almacenamiento para instancias RDS desde la API de Pricing.
-        """
         try:
             filters = [
                 {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
@@ -256,23 +281,30 @@ class AWSCostRepository(CostRepository):
 
             if response['PriceList']:
                 price_item = json.loads(response['PriceList'][0])
-                attributes = price_item['product']['attributes']
+
+                # Validar estructura completa antes de acceder
+                attributes = price_item.get('product', {}).get('attributes', {})
                 
                 memory_str = attributes.get('memory', '0 GiB')
                 vcpu_str = attributes.get('vcpu', '0')
-                
-                memory_gb = float(memory_str.split(' ')[0].replace(',', ''))
-                vcpus = int(vcpu_str)
+
+                # Conversión segura a números
+                memory_gb = memory_str.split(' ')[0].replace(',', '').strip()
+                vcpus = vcpu_str.strip()
+
+                memory_gb = float(memory_gb) if memory_gb.replace('.', '', 1).isdigit() else 'N/A'
+                vcpus = int(vcpus) if vcpus.isdigit() else 'N/A'
 
                 return {
                     "memory_gb": memory_gb,
                     "vcpus": vcpus
                 }
 
+            # Caso en que no devuelve información
             return {"memory_gb": "N/A", "vcpus": "N/A"}
-    
+
         except Exception as e:
-            print(f"⚠️ Error fetching instance specs for {instance_type} ({engine}) in {region}: {e}")
+            print(f"⚠️ Error fetching specs for {instance_type} ({engine}) in {region}: {e}")
             return {"memory_gb": "N/A", "vcpus": "N/A"}
         
     def region_full_name(self, region_code):

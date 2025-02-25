@@ -4,6 +4,7 @@ services:
     container_name: aws_cost_container
     volumes:
       - ~/.aws:/root/.aws  # Mount AWS credentials
-      - ./outputs:/outputs  # Bind local "outputs" folder to container
+      - ./outputs:/app/outputs  # Mount outputs directory to container's /app/outputs
     environment:
       - AWS_PROFILE=${AWS_PROFILE:-default}  # Load profile from environment variable
+    command: --output /app/outputs  # Default command with output directory

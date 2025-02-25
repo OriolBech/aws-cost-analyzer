@@ -1,18 +1,17 @@
-# Use official Python image
+# Base image
 FROM python:3.11
 
-# Set the working directory
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy project files
-COPY src/ src/
-COPY requirements.txt .
+# Copy all files into the container
+COPY . /app
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Set PYTHONPATH so Python can find "src" as a package
-ENV PYTHONPATH=/app
+# Set PYTHONPATH so imports work
+ENV PYTHONPATH="/app/src"
 
-# Set entry point for the CLI using absolute module path
-ENTRYPOINT ["python", "-m", "src.cli"]
+# Define entrypoint
+ENTRYPOINT ["python", "src/cli.py"]
